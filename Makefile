@@ -34,9 +34,9 @@ PARAMS_NEON = -mfloat-abi=hard -march=armv7-a -mtune=cortex-a8 -mfpu=neon -mvect
 #tnx Jan Szumiec for the Raspberry Pi support
 PARAMS_RASPI = -mfloat-abi=hard -mcpu=arm1176jzf-s -mfpu=vfp -funsafe-math-optimizations -Wformat=0
 PARAMS_ARM = $(if $(call cpufeature,BCM2708,dummy-text),$(PARAMS_RASPI),$(PARAMS_NEON))
-PARAMS_SIMD = $(if $(call cpufeature,sse,dummy-text),$(PARAMS_SSE),$(PARAMS_ARM))
-PARAMS_LOOPVECT = -O3 -ffast-math -fdump-tree-vect-details -dumpbase dumpvect
-PARAMS_LIBS = -g -lm -lrt -lfftw3f -DUSE_FFTW -DLIBCSDR_GPL -DUSE_IMA_ADPCM
+PARAMS_SIMD=-msse -msse2 -msse3 -msse4a -msse4
+PARAMS_LOOPVECT=-O3 -ffast-math -I/usr/local/include
+PARAMS_LIBS=-g -lm -L. -L/usr/local/lib -lfftw3f -DUSE_FFTW -DLIBCSDR_GPL -DUSE_IMA_ADPCM
 PARAMS_SO = -fpic  
 PARAMS_MISC = -Wno-unused-result
 #DEBUG_ON = 0 #debug is always on by now (anyway it could be compiled with `make DEBUG_ON=1`)
@@ -44,25 +44,25 @@ PARAMS_MISC = -Wno-unused-result
 FFTW_PACKAGE = fftw-3.3.3
 PREFIX ?= /usr
 SOVERSION = 0.15
-PARSEVECT ?= yes
+PARSEVECT ?= no
 
 .PHONY: clean-vect clean codequality checkdocs v
 all: codequality csdr nmux
-libcsdr.so: fft_fftw.c fft_rpi.c libcsdr_wrapper.c libcsdr.c libcsdr_gpl.c fastddc.c fastddc.h  fft_fftw.h  fft_rpi.h  ima_adpcm.h  libcsdr_gpl.h  libcsdr.h  predefined.h
+libcsdr.dylib: fft_fftw.c fft_rpi.c libcsdr_wrapper.c libcsdr.c libcsdr_gpl.c fastddc.c fastddc.h  fft_fftw.h  fft_rpi.h  ima_adpcm.h  libcsdr_gpl.h  libcsdr.h  predefined.h
 	@echo NOTE: you may have to manually edit Makefile to optimize for your CPU \(especially if you compile on ARM, please edit PARAMS_NEON\).
 	@echo Auto-detected optimization parameters: $(PARAMS_SIMD)
 	@echo
 	rm -f dumpvect*.vect
-	gcc -std=gnu99 $(PARAMS_LOOPVECT) $(PARAMS_SIMD) $(LIBSOURCES) $(PARAMS_LIBS) $(PARAMS_MISC) -fpic -shared -Wl,-soname,libcsdr.so.$(SOVERSION) -o libcsdr.so.$(SOVERSION)
-	@ln -fs libcsdr.so.$(SOVERSION) libcsdr.so
+	gcc -std=gnu99 $(PARAMS_LOOPVECT) $(PARAMS_SIMD) $(LIBSOURCES) $(PARAMS_LIBS) $(PARAMS_MISC) -fpic -dynamiclib -install_name libcsdr.0.dylib -current_version $(SOVERSION) -compatibility_version 0 -o libcsdr.0.dylib
+	@ln -s libcsdr.0.dylib libcsdr.dylib
 ifeq ($(PARSEVECT),yes)
 	-./parsevect dumpvect*.vect
 endif
-csdr: csdr.c libcsdr.so
+csdr: csdr.c libcsdr.dylib
 	gcc -std=gnu99 $(PARAMS_LOOPVECT) $(PARAMS_SIMD) csdr.c $(PARAMS_LIBS) -L. -lcsdr $(PARAMS_MISC) -o csdr
-ddcd: ddcd.cpp libcsdr.so ddcd.h
+ddcd: ddcd.cpp libcsdr.dylib ddcd.h
 	g++ $(PARAMS_LOOPVECT) $(PARAMS_SIMD) ddcd.cpp $(PARAMS_LIBS) -L. -lcsdr -lpthread $(PARAMS_MISC) -o ddcd
-nmux: nmux.cpp libcsdr.so nmux.h tsmpool.cpp tsmpool.h
+nmux: nmux.cpp libcsdr.dylib nmux.h tsmpool.cpp tsmpool.h
 	g++ $(PARAMS_LOOPVECT) $(PARAMS_SIMD) nmux.cpp tsmpool.cpp $(PARAMS_LIBS) -L. -lcsdr -lpthread $(PARAMS_MISC) -o nmux
 arm-cross: clean-vect
 	#note: this doesn't work since having added FFTW
@@ -70,19 +70,21 @@ arm-cross: clean-vect
 clean-vect:
 	rm -f dumpvect*.vect
 clean: clean-vect
-	rm -f libcsdr.so.$(SOVERSION) csdr ddcd nmux *.o *.so
+	rm -f libcsdr.dylib libcsdr.0.dylib csdr ddcd nmux *.o *.so
 install: all 
 	install -m 0755 libcsdr.so.$(SOVERSION) $(PREFIX)/lib
+	install -m 0755 libcsdr.0.dylib $(PREFIX)/lib
+	install -m 0755 libcsdr.dylib $(PREFIX)/lib
 	install -m 0755 csdr $(PREFIX)/bin
 	install -m 0755 csdr-fm $(PREFIX)/bin
 	install -m 0755 nmux $(PREFIX)/bin
 	#-install -m 0755 ddcd $(PREFIX)/bin
 	@ldconfig || echo please run ldconfig
 uninstall:
-	rm $(PREFIX)/lib/libcsdr.so.$(SOVERSION) $(PREFIX)/bin/csdr $(PREFIX)/bin/csdr-fm
+	rm $(PREFIX)/lib/libcsdr.dylib $(PREFIX)/lib/libcsdr.0.dylib $(PREFIX)/bin/csdr $(PREFIX)/bin/csdr-fm
 	ldconfig
 disasm:
-	objdump -S libcsdr.so.$(SOVERSION) > libcsdr.disasm
+	objdump -S libcsdr.0.dylib > libcsdr.disasm
 emcc-clean:
 	-rm sdr.js/sdr.js
 	-rm sdr.js/sdrjs-compiled.js

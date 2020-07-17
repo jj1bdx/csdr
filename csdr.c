@@ -206,6 +206,16 @@ int errhead()
     fprintf(stderr, "%s%s%s: ", argv_global[0], ((argc_global>=2)?" ":""), ((argc_global>=2)?argv_global[1]:""));
 }
 
+
+#ifdef __MACH__
+#include <mach/mach.h>
+// value here doesn't matter.
+#define CLOCK_MONOTONIC_RAW 0
+// later, in main(), we call fcntl() on stdout and stdin to increase the buffer size.
+// let's turn that call into a noop.
+#define F_SETPIPE_SZ F_GETFL
+#endif
+
 int badsyntax(char* why)
 {
     if(why==0) fprintf(stderr, "%s", usage);
